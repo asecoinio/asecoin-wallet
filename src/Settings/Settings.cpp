@@ -29,6 +29,7 @@
 #include <Common/Util.h>
 #include <CryptoNoteConfig.h>
 
+#include "CryptoNoteWalletConfig.h"
 #include "Settings.h"
 #include "Application/CommandLineParser.h"
 #include "Style/LightStyle.h"
