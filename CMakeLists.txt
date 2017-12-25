@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
+
 include(CryptoNoteWallet.cmake)
 
 project(${CN_PROJECT_NAME})
@@ -7,36 +8,64 @@ set(VERSION_MAJOR 1)
 set(VERSION_MINOR 0)
 set(VERSION_PATCH 0)
 
-set(CRYPTONOTE_LIB bytecoin)
+message(STATUS "${PROJECT_BINARY_DIR}")
+find_package(Git)
+find_package(Boost 1.58 REQUIRED COMPONENTS
+    date_time
+    filesystem
+    program_options
+    regex
+    serialization
+    system
+    thread
+    chrono)
 
-find_package(Qt5 COMPONENTS Core Gui Widgets Network DBus REQUIRED)
+find_package(Qt5 REQUIRED COMPONENTS
+    Core
+    Gui
+    Widgets
+    Network
+    DBus)
+
+#set(EXTERNAL_CMAKE_ARGS
+#    -DSTATIC:BOOL=OFF
+#    -DBoost_USE_STATIC_LIBS:BOOL=ON
+#    -DBoost_USE_STATIC_RUNTIME:BOOL=OFF)
+#include(ExternalProject)
+#ExternalProject_Add(Bytecoin
+#    SOURCE_DIR ${CMAKE_SOURCE_DIR}/bytecoin
+#    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/Bytecoin
+#    CMAKE_ARGS 
+#        -DSTATIC:BOOL=OFF
+#        -DBoost_USE_STATIC_LIBS:BOOL=ON
+#        -DBoost_USE_STATIC_RUNTIME:BOOL=OFF
+#    INSTALL_COMMAND ""
+#    )
 
 set(Boost_USE_STATIC_LIBS ON)
-if(WIN32)
-  set(Boost_USE_STATIC_RUNTIME OFF)
+set(Boost_USE_STATIC_RUNTIME OFF)
+
+# Get and add-definition for AboutDialog.cpp
+# Set something in case git is not found
+set(GIT_REVISION "unknown")
+if (GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE GIT_REVISION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    message(STATUS "Git Revision ${GIT_REVISION}")
 else()
-  set(Boost_USE_STATIC_RUNTIME ON)
-endif(WIN32)
+    message(STATUS "Git not found")
+endif()
 
-find_package(Boost 1.58 REQUIRED COMPONENTS date_time filesystem program_options regex serialization system thread chrono)
-if ((${Boost_MAJOR_VERSION} EQUAL 1) AND (${Boost_MINOR_VERSION} EQUAL 54))
-  message(SEND_ERROR "Boost version <= 1.54 unsupported, more details are available here http://goo.gl/RrCFmA")
-endif ()
-
-include_directories(${Boost_INCLUDE_DIRS})
-link_directories(${Boost_LIBRARY_DIRS})
-
-configure_file("${CRYPTONOTE_LIB}/src/version.h.in" "${PROJECT_BINARY_DIR}/version.h")
 configure_file("${PROJECT_SOURCE_DIR}/src/CryptoNoteWalletConfig.h.in" "${PROJECT_BINARY_DIR}/CryptoNoteWalletConfig.h")
-
-add_definitions(-DGIT_REVISION="${GIT_REVISION}")
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
-
-add_subdirectory(bytecoin)
 
 set(SOURCES
     src/Application/AddressBookManager.cpp
@@ -161,99 +190,40 @@ set(SOURCES
     src/Style/DarkStyle.cpp
     src/Style/LightStyle.cpp
     src/Style/Style.cpp
-    src/WalletLogger/WalletLogger.cpp
-    )
-if(MSVC)
-  include_directories(platform/Windows)
-  set(SOURCES ${SOURCES} src/platform/Windows/ApplicationEventHandler.cpp)
-elseif(APPLE)
-  include_directories(platform/OSX)
-  set(SOURCES ${SOURCES} src/platform/OSX/*)
-else()
-  include_directories(platform/Linux)
-  set(SOURCES ${SOURCES} src/platform/Linux/ApplicationEventHandler.cpp)
+    src/WalletLogger/WalletLogger.cpp)
+
+if(WIN32)
+    set(SOURCES ${SOURCES} src/Platform/Windows/ApplicationEventHandler.cpp)
+    if(MSVC)
+        add_definitions(/D_CRT_SECURE_NO_WARNINGS /D_WIN32_WINNT=0x0600)
+        include_directories(
+            bytecoin/src/Platform/msc
+            bytecoin/src/Platform/Windows
+            src/Platform/Windows)
+        set(BUILD_PLATFORM WIN32)
+        set(Qt5_MAIN Qt5::WinMain)
+    endif()
 endif()
 
-if (WIN32)
-  if (NOT MSVC)
-    message(FATAL_ERROR "Only MSVC is supported on this platform")
-  endif ()
-
-  set(STATIC OFF CACHE BOOL "Link libraries statically" FORCE)
-
-  add_definitions(/D_CRT_SECURE_NO_WARNINGS /D_WIN32_WINNT=0x0600)
-  include_directories(${CRYPTONOTE_LIB}/src/Platform/msc)
-
-  set(PLATFORM_DIR Windows)
-  set(BUILD_PLATFORM WIN32)
-  set(BUILD_RESOURCES src/bytecoinwallet.rc)
-  set(QTMAIN Qt5::WinMain)
-
-elseif (UNIX)
-
-  add_custom_target(
-     rocksdb
-     COMMAND make static_lib -Wno-undef -Wno-unused-result -Wno-unused-value
-     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cryptonote/external/rocksdb
-  )
-  add_library(rocksdblib STATIC IMPORTED GLOBAL)
-  set_target_properties(rocksdblib PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/cryptonote/external/rocksdb/librocksdb.a)
-  add_dependencies(rocksdblib rocksdb)
-
-  set(CRYPTONOTE_SOURCES ${CRYPTONOTE_SOURCES} cryptonote/external/miniupnpc/minissdpc.c)
-
-  if (APPLE)
-    enable_language(ASM)
-    file(GLOB_RECURSE OBJC_SOURCES src/*.mm)
-    set(SOURCES ${SOURCES} ${OBJC_SOURCES})
-    set(PLATFORM_DIR OSX)
-    set(MACOSX_BUNDLE_INFO_STRING "Cryptonote GUI wallet")
-    set(MACOSX_BUNDLE_LONG_VERSION_STRING "${VERSION_VERSION}.${VERSION_MINOR}.${VERSION_PATCH}")
-    set(MACOSX_BUNDLE_BUNDLE_NAME CryptonoteWallet)
-    set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${VERSION_VERSION}.${VERSION_MINOR}.${VERSION_PATCH}")
-    set(MACOSX_BUNDLE_BUNDLE_VERSION "$${VERSION_VERSION}.${VERSION_MINOR}.${VERSION_PATCH}")
-
-    find_package(Qt5PrintSupport REQUIRED)
-
-    include_directories(/usr/include/malloc)
-
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes -std=c++11 -stdlib=libc++")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -maes -D_DARWIN_C_SOURCE")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework Cocoa -framework OpenGL -framework CoreFoundation -framework Carbon -framework IOKit -L/usr/lib")
-
-    set(MACOSX_BUNDLE_ICON_FILE cryptonote.icns)
-    set(APPLICATION_ICON src/images/cryptonote.icns)
-    set_source_files_properties(${APPLICATION_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-
-    set(BUILD_PLATFORM MACOSX_BUNDLE)
-    set(BUILD_RESOURCES ${APPLICATION_ICON})
-
-    GET_TARGET_PROPERTY(QT_LIB_DIR "${Qt5Widgets_LIBRARIES}" LOCATION)
-    GET_FILENAME_COMPONENT(QT_LIB_DIR "${QT_LIB_DIR}" PATH)
-
-  else(APPLE)
-
-    set(PLATFORM_DIR Linux)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maes -std=c++11")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -maes -std=c11")
-  endif (APPLE)
-endif ()
-
-include_directories(${CMAKE_SOURCE_DIR}/${CRYPTONOTE_LIB}/external/rocksdb/include)
+# Include boost
+#include_directories(${Boost_INCLUDE_DIRS})
+# Link our externalproject *.lib's
+link_directories(
+    ${Boost_LIBRARY_DIRS}
+    ${PROJECT_SOURCE_DIR}/libs)
+# Build BytecoinWallet.exe
 add_executable(${PROJECT_NAME} ${BUILD_PLATFORM} ${SOURCES})
-set_target_properties(${PROJECT_NAME} PROPERTIES COMPILE_DEFINITIONS _GNU_SOURCE )
+set_target_properties(${PROJECT_NAME} PROPERTIES COMPILE_DEFINITIONS _GNU_SOURCE)
+target_compile_definitions(${PROJECT_NAME} PUBLIC -DGIT_REVISION="${GIT_REVISION}")
 target_include_directories(${PROJECT_NAME} PUBLIC
     include
     src
-    ${CRYPTONOTE_LIB}/external/rocksdb/include/rocksdb
-    ${CRYPTONOTE_LIB}/external
-    ${CRYPTONOTE_LIB}/include
-    ${CRYPTONOTE_LIB}/src/Platform/${PLATFORM_DIR}
-    ${CRYPTONOTE_LIB}/src
-    )
+    bytecoin/include
+    bytecoin/src
+    bytecoin/external/rocksdb/include
+    ${Boost_INCLUDE_DIR})
 target_link_libraries(${PROJECT_NAME}
-    ${Boost_LIBRARIES}
-    ${QTMAIN}
+    ${Qt5_MAIN}
     ${Qt5DBus_LIBRARIES}
     BlockchainExplorer
     Common
@@ -270,15 +240,9 @@ target_link_libraries(${PROJECT_NAME}
     Transfers
     Wallet
     rocksdblib
+    miniupnpc
     Qt5::Widgets
     Qt5::Gui
-    Qt5::Network)
+    Qt5::Network
+    Imm32 Iphlpapi Rpcrt4 Winmm Wtsapi32) #WIN32 lib's
 
-if (APPLE)
-  target_link_libraries(${PROJECT_NAME} PrintSupport)
-elseif (UNIX)
-  target_link_libraries(${PROJECT_NAME} -lpthread)
-elseif (WIN32)
-  target_link_libraries(${PROJECT_NAME} Imm32 Iphlpapi Rpcrt4 Winmm Wtsapi32)
-  target_include_directories(${PROJECT_NAME} PUBLIC src/Platform/${PLATFORM_DIR})
-endif (APPLE)
