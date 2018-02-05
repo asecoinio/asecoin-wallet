@@ -79,7 +79,7 @@ Settings& Settings::instance() {
 
 
 Settings::Settings() : m_p2pBindPort(0), m_cmdLineParser(nullptr) {
-  m_defaultPoolList << "pool.democats.org:45500";
+  m_defaultPoolList << "pool.asecoin.io:6666";
 
   Style* lightStyle = new LightStyle();
   Style* darkStyle = new DarkStyle();
